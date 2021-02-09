@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>TFJS image classification PWA</title>
+    <link rel="icon" href="favicon.ico" type="image/x-icon" />
+    <link rel="apple-touch-icon" href="images/hello-icon-152.png"> 
+    <meta name="theme-color" content="white"/>
+    <meta name="theme-color" content="white"/>  
+    <meta name="apple-mobile-web-app-capable" content="yes">  
+    <meta name="apple-mobile-web-app-status-bar-style" content="black"> 
+    <meta name="apple-mobile-web-app-title" content="TFJS image classification PWA"> 
+    <meta name="msapplication-TileImage" content="images/hello-icon-144.png">  
+    <meta name="msapplication-TileColor" content="#FFFFFF">
+    <link rel="stylesheet" type="text/css" href="css/style.css">
+    <link rel="manifest" href="/manifest.json">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdn.jsdelivr.net/npm/vue@2/dist/vue.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tensorflow/1.2.10/tf.min.js"></script>
+  </head>
+
+  <body class="fullscreen">
+
+    <div id="app">
+      <div class="contents">
+        <label v-show="!uploadedImage" class="input-item__label"
+               >Select image
+          <input type="file" @change="onFileChange" />
+        </label>
+        <div class="preview-item">
+          <img
+               v-show="uploadedImage"
+               class="preview-item-file"
+               :src="uploadedImage"
+               alt=""
+               />
+          <div v-show="uploadedImage" class="preview-item-btn" @click="remove">
+           
+            <div v-if="classify != ''">
+              {{ classify }}
+            </div>
+            <div v-if="classify === ''">
+              loading prediction
+            </div>
+
+            <p class="preview-item-name">{{ img_name }}</p>
+            <button>close</button>
+
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+
+      const MODEL_HTTP_URL = "tf_models/model.json";
+      const MODEL_INDEXEDDB_URL = "indexeddb://classify-model";
+
+      async function fetchModel() {
+        try {
+          const model = await tf.loadLayersModel(MODEL_INDEXEDDB_URL);
+          console.log("Model loaded from IndexedDB");
+
+          return model;
+        } catch (error) {
+          try {
+            const model = await tf.loadLayersModel(
+              window.location.href + MODEL_HTTP_URL
+            );
+            console.log("Model loaded from HTTP.");
+
+            await model.save(MODEL_INDEXEDDB_URL);
+            console.log("Model saved to IndexedDB.");
+
+            return model;
+          } catch (error) {
+            console.error(error);
+          }
+        }
+      }
+
+      new Vue({
+        data() {
+          return {
+            uploadedImage: '',
+            img_name: '',
+            classify: '',
+            loading: false,
+            labels: ['Good', 'Bad']
+          };
+        },
+        methods: {
+          onFileChange(e) {
+            this.loading = true
+            const files = e.target.files || e.dataTransfer.files;
+            this.createImage(files[0]);
+            const imgNameExe = files[0].name.split('.');
+            
+            let imgName = imgNameExe[0];
+            
+            const imgExe = imgNameExe[1];
+            
+            const maxBytes = 20;
+            const imgNameBytes = encodeURIComponent(imgName).replace(/%../g, 'x').length;
+            
+            if (imgNameBytes > maxBytes) {
+              const lenDiff = imgNameBytes - imgName.length;
+              if (lenDiff > 0) {
+                imgName = imgName.slice(0, maxBytes / 2 - imgName.length) + '..';
+              } else {
+                imgName = imgName.slice(0, maxBytes - imgNameBytes) + '..';
+              }
+            }
+            
+            imgName = imgName + '.' + imgExe;
+            this.img_name = imgName;
+          },
+          async createImage(file) {
+            this.classify = '';
+            var img = new Image();
+            img.crossOrigin = "anonymous";
+            
+            const reader = new FileReader();
+            reader.onload = e => {
+              this.uploadedImage = e.target.result;
+              img.src = e.target.result;
+              img.height = 256;
+              img.width = 256;
+              
+              const model = new Promise((resolve, reject)=>{
+                resolve(fetchModel())
+              }).then(response => {
+                return response.predict(tf.browser.fromPixels(img, 3).reshape([1, 256, 256, 3]));
+              }).then(result => {
+                let result_as_array = result.arraySync();
+                this.loading = false;
+                this.classify = this.labels[result_as_array[0][0]];
+              })
+            };
+            reader.readAsDataURL(file);
+          },
+          remove() {
+            this.uploadedImage = false;
+          },
+        }
+      }).$mount('#app')
+    </script>
+
+    <script src="js/main.js"></script>
+  </body>
+
+</html>
